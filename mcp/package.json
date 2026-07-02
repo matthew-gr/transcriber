@@ -1,0 +1,18 @@
+{
+  "name": "wpi-transcriber-mcp",
+  "version": "1.0.0",
+  "description": "MCP server exposing a transcribe_audio tool backed by OpenAI Whisper.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "dotenv": "^16.4.5",
+    "openai": "^4.56.0"
+  }
+}

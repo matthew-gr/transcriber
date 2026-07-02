@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WPI Audio Transcriber</title>
+<style>
+  :root {
+    --ink: #16201a;
+    --paper: #f6f4ee;
+    --line: #d6d0c4;
+    --accent: #2f6f4e;
+    --accent-press: #245539;
+    --muted: #6b6457;
+    --error: #9a3324;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    line-height: 1.5;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    width: 100%;
+    max-width: 560px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 40px;
+  }
+  .eyebrow {
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 8px;
+  }
+  h1 {
+    font-size: 28px;
+    font-weight: 600;
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+  p.lead {
+    margin: 0 0 28px;
+    color: var(--muted);
+    font-size: 15px;
+  }
+  .drop {
+    border: 1.5px dashed var(--line);
+    border-radius: 4px;
+    padding: 36px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .drop:hover, .drop.over {
+    border-color: var(--accent);
+    background: #f3f8f5;
+  }
+  .drop strong { color: var(--accent); }
+  .drop .hint {
+    display: block;
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  input[type="file"] { display: none; }
+  .filename {
+    margin-top: 14px;
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    font-size: 13px;
+    color: var(--ink);
+    word-break: break-all;
+  }
+  button {
+    font: inherit;
+    font-size: 15px;
+    margin-top: 20px;
+    width: 100%;
+    padding: 13px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  button:hover:not(:disabled) { background: var(--accent-press); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .status {
+    margin-top: 18px;
+    font-size: 14px;
+    color: var(--muted);
+    min-height: 20px;
+  }
+  .status.error { color: var(--error); }
+  .result {
+    margin-top: 24px;
+    display: none;
+  }
+  .result.show { display: block; }
+  .result-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .result-head h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    margin: 0;
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    font-weight: 500;
+  }
+  .copy-btn, .dl-btn {
+    width: auto;
+    margin: 0 0 0 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--line);
+  }
+  .copy-btn:hover, .dl-btn:hover { background: #f3f8f5; }
+  textarea {
+    width: 100%;
+    min-height: 200px;
+    padding: 14px;
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    resize: vertical;
+  }
+  .long-note {
+    font-size: 13px;
+    color: var(--muted);
+    margin: 0 0 12px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <p class="eyebrow">WPI Internal Tools</p>
+    <h1>Audio Transcriber</h1>
+    <p class="lead">Upload a recording and get the text back. Supports mp3, m4a, wav, mp4, mpeg, mpga, and webm, up to 25 MB.</p>
+
+    <label class="drop" id="drop">
+      <strong>Choose a file</strong> or drop it here
+      <span class="hint">Audio only, 25 MB max</span>
+      <input type="file" id="file" accept=".mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm,audio/*" />
+    </label>
+    <div class="filename" id="filename"></div>
+
+    <button id="go" disabled>Transcribe</button>
+    <div class="status" id="status"></div>
+
+    <div class="result" id="result">
+      <div class="result-head">
+        <h2>Transcript</h2>
+        <div>
+          <button class="copy-btn" id="copy">Copy</button>
+          <button class="dl-btn" id="download">Download .txt</button>
+        </div>
+      </div>
+      <p class="long-note" id="longNote" style="display:none;">This transcript is long. Use Download to save it as a text file.</p>
+      <textarea id="text" readonly></textarea>
+    </div>
+  </div>
+
+<script>
+  const LONG_THRESHOLD = 2000;
+  const dropEl = document.getElementById("drop");
+  const fileEl = document.getElementById("file");
+  const filenameEl = document.getElementById("filename");
+  const goEl = document.getElementById("go");
+  const statusEl = document.getElementById("status");
+  const resultEl = document.getElementById("result");
+  const textEl = document.getElementById("text");
+  const copyEl = document.getElementById("copy");
+  const downloadEl = document.getElementById("download");
+  const longNoteEl = document.getElementById("longNote");
+
+  let selectedFile = null;
+  let lastName = "transcript";
+
+  function setStatus(msg, isError) {
+    statusEl.textContent = msg;
+    statusEl.classList.toggle("error", !!isError);
+  }
+
+  function pickFile(file) {
+    selectedFile = file;
+    filenameEl.textContent = file ? file.name : "";
+    goEl.disabled = !file;
+    resultEl.classList.remove("show");
+    setStatus("");
+  }
+
+  fileEl.addEventListener("change", (e) => pickFile(e.target.files[0] || null));
+
+  ["dragover", "dragenter"].forEach((evt) =>
+    dropEl.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropEl.classList.add("over");
+    })
+  );
+  ["dragleave", "drop"].forEach((evt) =>
+    dropEl.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropEl.classList.remove("over");
+    })
+  );
+  dropEl.addEventListener("drop", (e) => {
+    const file = e.dataTransfer.files[0];
+    if (file) pickFile(file);
+  });
+
+  goEl.addEventListener("click", async () => {
+    if (!selectedFile) return;
+    goEl.disabled = true;
+    setStatus("Transcribing. This can take a moment for longer files.");
+    resultEl.classList.remove("show");
+
+    const form = new FormData();
+    form.append("audio", selectedFile);
+
+    try {
+      const res = await fetch("/api/transcribe", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Transcription failed.");
+
+      lastName = (data.filename || "transcript").replace(/\.[^.]+$/, "");
+      textEl.value = data.text || "";
+      const isLong = (data.text || "").length > LONG_THRESHOLD;
+      longNoteEl.style.display = isLong ? "block" : "none";
+      resultEl.classList.add("show");
+      setStatus("Done.");
+    } catch (err) {
+      setStatus(err.message, true);
+    } finally {
+      goEl.disabled = false;
+    }
+  });
+
+  copyEl.addEventListener("click", async () => {
+    await navigator.clipboard.writeText(textEl.value);
+    copyEl.textContent = "Copied";
+    setTimeout(() => (copyEl.textContent = "Copy"), 1500);
+  });
+
+  downloadEl.addEventListener("click", () => {
+    const blob = new Blob([textEl.value], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = lastName + ".txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+</script>
+</body>
+</html>
