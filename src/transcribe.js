@@ -1,4 +1,5 @@
 import fs from "fs";
+import path from "path";
 import OpenAI from "openai";
 import { AssemblyAI } from "assemblyai";
 
@@ -102,22 +103,50 @@ const IMPLEMENTATIONS = {
   assemblyai: transcribeWithAssemblyAI,
 };
 
+// Whisper only accepts files within its size cap AND with a supported
+// extension. Everything else has to go to AssemblyAI.
+function whisperCanHandle(filePath) {
+  const ext = path.extname(filePath).slice(1).toLowerCase();
+  if (!WHISPER_EXTENSIONS.includes(ext)) return false;
+  return fs.statSync(filePath).size <= PROVIDER_MAX_BYTES.whisper;
+}
+
+/**
+ * The provider that will actually run for this file. Choosing "whisper" means
+ * "prefer Whisper, but fall back to AssemblyAI for files Whisper can't take"
+ * (over 25 MB or an unsupported format such as 3gp). Choosing "assemblyai"
+ * always uses AssemblyAI. This keeps the fast/cheap path for typical files
+ * without losing AssemblyAI's reach on the rest.
+ *
+ * @param {string} filePath
+ * @param {string} [provider]
+ * @returns {string}
+ */
+export function resolveEffectiveProvider(filePath, provider) {
+  const requested = resolveProvider(provider);
+  if (requested === "whisper" && !whisperCanHandle(filePath)) {
+    return "assemblyai";
+  }
+  return requested;
+}
+
 /**
  * Transcribe an audio file from a path on disk. Returns the plain text
  * transcript as a string.
  *
  * @param {string} filePath  Absolute or relative path to the audio file.
  * @param {{ provider?: string }} [opts]  provider picks the backend; falls back
- *   to TRANSCRIPTION_PROVIDER, then "whisper".
+ *   to TRANSCRIPTION_PROVIDER, then "whisper". "whisper" auto-flips to
+ *   AssemblyAI for files it cannot handle (see resolveEffectiveProvider).
  * @returns {Promise<string>}
  */
 export async function transcribeFile(filePath, { provider } = {}) {
-  const active = resolveProvider(provider);
+  const active = resolveEffectiveProvider(filePath, provider);
   const cap = PROVIDER_MAX_BYTES[active];
-  const stats = fs.statSync(filePath);
-  if (stats.size > cap) {
+  const size = fs.statSync(filePath).size;
+  if (size > cap) {
     throw new Error(
-      `File is ${(stats.size / MB).toFixed(1)} MB. ${active} accepts up to ${(
+      `File is ${(size / MB).toFixed(1)} MB. ${active} accepts up to ${(
         cap / MB
       ).toFixed(0)} MB per file. Split the recording first.`
     );

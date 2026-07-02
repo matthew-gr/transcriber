@@ -104,7 +104,7 @@ function buildServer() {
       {
         name: "transcribe_audio",
         description:
-          `Transcribe an audio file to plain text. Accepts either a local file path or an https URL. Two engines: "whisper" (OpenAI, mp3/mp4/mpeg/mpga/m4a/wav/webm up to 25 MB) or "assemblyai" (wider formats and much larger files). Defaults to the server's configured provider (${DEFAULT_PROVIDER}).`,
+          `Transcribe an audio file to plain text. Accepts either a local file path or an https URL. Two engines: "whisper" prefers OpenAI Whisper (mp3/mp4/mpeg/mpga/m4a/wav/webm up to 25 MB) but automatically falls back to AssemblyAI for files it can't handle (over 25 MB or other formats like 3gp); "assemblyai" always uses AssemblyAI. Defaults to the server's configured provider (${DEFAULT_PROVIDER}).`,
         inputSchema: {
           type: "object",
           properties: {

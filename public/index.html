@@ -255,8 +255,9 @@
 
   const PROVIDER_LABELS = { whisper: "OpenAI Whisper", assemblyai: "AssemblyAI" };
   const PROVIDER_NOTES = {
-    whisper: "mp3, mp4, mpeg, mpga, m4a, wav, webm — up to 25 MB.",
-    assemblyai: "Wider format support (incl. 3gp) and much larger files.",
+    whisper:
+      "Prefers Whisper; automatically switches to AssemblyAI for files over 25 MB or formats Whisper can't read (e.g. 3gp).",
+    assemblyai: "Always uses AssemblyAI — wider formats and much larger files.",
   };
 
   function updateProviderNote() {
@@ -352,7 +353,13 @@
       const isLong = (data.text || "").length > LONG_THRESHOLD;
       longNoteEl.style.display = isLong ? "block" : "none";
       resultEl.classList.add("show");
-      setStatus("Done.");
+      const usedLabel = PROVIDER_LABELS[data.provider] || data.provider;
+      if (data.requested && data.provider !== data.requested) {
+        const askedLabel = PROVIDER_LABELS[data.requested] || data.requested;
+        setStatus(`Done — ${askedLabel} couldn't handle this file, so ${usedLabel} was used.`);
+      } else {
+        setStatus(`Done — transcribed with ${usedLabel}.`);
+      }
     } catch (err) {
       setStatus(err.message, true);
     } finally {

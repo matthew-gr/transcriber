@@ -8,7 +8,7 @@ import crypto from "crypto";
 import { fileURLToPath } from "url";
 import {
   transcribeFile,
-  isSupported,
+  resolveEffectiveProvider,
   MAX_UPLOAD_BYTES,
   PROVIDERS,
   DEFAULT_PROVIDER,
@@ -76,18 +76,14 @@ app.post("/api/transcribe", requireToken, upload.single("audio"), async (req, re
   }
 
   const tempPath = req.file.path;
-  const provider = req.body.provider || DEFAULT_PROVIDER;
+  const requested = req.body.provider || DEFAULT_PROVIDER;
 
   try {
-    if (!isSupported(req.file.originalname, provider)) {
-      return res.status(400).json({
-        error:
-          "Unsupported file type for Whisper. Use mp3, mp4, mpeg, mpga, m4a, wav, or webm — or switch the provider to AssemblyAI for other formats.",
-      });
-    }
-
+    // "whisper" auto-flips to AssemblyAI for files it can't handle; report both
+    // what was requested and what actually ran.
+    const provider = resolveEffectiveProvider(tempPath, requested);
     const text = await transcribeFile(tempPath, { provider });
-    res.json({ text, filename: req.file.originalname, provider });
+    res.json({ text, filename: req.file.originalname, provider, requested });
   } catch (err) {
     const msg = err.message || "Transcription failed.";
     // Missing-key and bad-provider are configuration errors: report them plainly
