@@ -1,11 +1,12 @@
-# Deploying the web portal
+# Deploying
 
-The web portal (`src/server.js`) is a standard Node service. It runs as-is on
-Railway or Render — no code changes, no build step. `railway.json` in the repo
-root sets the start command and points the health check at `/health`.
+Two services run from this one repo: the **web portal** (`src/server.js`) and
+the **remote MCP server** (`mcp/server.js`). Both are standard Node services —
+no build step. `railway.json` in the repo root configures the web portal
+(start command + `/health` check).
 
-The remote MCP server is a **separate** follow-up (see `mcp/README.md`); this
-guide covers the web portal only.
+The web portal section below is the primary path. The MCP server is a second
+service; its recipe is at the end.
 
 ## Before you deploy
 
@@ -59,3 +60,35 @@ curl -X POST https://<your-domain>/api/transcribe \
 
 `x-access-token: <token>` works too. `/health` is intentionally left open for
 platform health checks.
+
+---
+
+# Deploying the MCP server (second Railway service)
+
+The MCP server (`mcp/server.js`) runs the same shared core as the portal, so it
+imports `../src/transcribe.js`. That means it must build from the **repo root**,
+not from an isolated `mcp/` root directory — otherwise `../src` and the root
+`node_modules` (which hold the transcription core and its `openai` dependency)
+would not be present.
+
+In the **same Railway project** as the portal:
+
+1. **New → GitHub Repo**, pick `transcriber` again (same repo, a second service).
+2. Leave **Root Directory** at the repo root (do **not** set it to `mcp`).
+3. Set a **custom Install Command** so both dependency sets are installed:
+   ```
+   npm install && npm install --prefix mcp
+   ```
+4. Set a **custom Start Command**:
+   ```
+   node mcp/server.js
+   ```
+5. **Variables**: `OPENAI_API_KEY` and `ACCESS_TOKEN` (same values as the portal,
+   or a separate token if you want to revoke them independently). No manual `PORT`.
+6. **Settings → Networking → Generate Domain** to get the public HTTPS URL. The
+   MCP endpoint is `https://<mcp-domain>/mcp`.
+7. Verify `https://<mcp-domain>/health` returns `{"ok":true}`, then connect a
+   client per `mcp/README.md`.
+
+Result: two services, one repo — the portal on its domain, the MCP server on its
+own, each with its own injected `PORT`.
