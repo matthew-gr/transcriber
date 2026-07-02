@@ -47,10 +47,14 @@ function tokenMatches(provided) {
   return crypto.timingSafeEqual(a, b);
 }
 
-// Accept the token via Authorization: Bearer (Claude Desktop / Claude Code /
-// programmatic clients) or a ?token= query param (capability-URL style, for the
-// Claude.ai web connector, whose UI does not expose a custom-header field).
+// Accept the token three ways:
+//   1. /mcp/<token>          — token in the URL path (capability URL). The path
+//      is always forwarded by clients, so this is the reliable form for the
+//      Claude.ai / Claude Desktop connector UI, which exposes no header field.
+//   2. Authorization: Bearer — Claude Code and programmatic clients.
+//   3. ?token=               — query-string fallback.
 function extractToken(req) {
+  if (req.params && typeof req.params.token === "string") return req.params.token;
   const header = req.get("authorization") || "";
   if (header.startsWith("Bearer ")) return header.slice(7);
   if (typeof req.query.token === "string") return req.query.token;
@@ -234,6 +238,11 @@ const sessionRequestHandler = async (req, res) => {
 app.post("/mcp", requireToken, postHandler);
 app.get("/mcp", requireToken, sessionRequestHandler);
 app.delete("/mcp", requireToken, sessionRequestHandler);
+
+// Capability-URL variant: same handlers, token taken from the path.
+app.post("/mcp/:token", requireToken, postHandler);
+app.get("/mcp/:token", requireToken, sessionRequestHandler);
+app.delete("/mcp/:token", requireToken, sessionRequestHandler);
 
 app.listen(PORT, HOST, () => {
   console.error(

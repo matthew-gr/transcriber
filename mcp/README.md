@@ -37,22 +37,26 @@ webm up to 25 MB (Whisper's per-file limit).
 ## Authentication
 
 The endpoint spends OpenAI credits per call, so it is gated by the same
-`ACCESS_TOKEN` shared secret as the web portal. The token is accepted two ways:
+`ACCESS_TOKEN` shared secret as the web portal. The token is accepted three ways:
 
-1. **`Authorization: Bearer <token>` header** — for Claude Code, programmatic
+1. **`/mcp/<token>` path** (capability URL) — the reliable form for the
+   Claude.ai / Claude Desktop connector UI. The path is always forwarded by the
+   client, and to Claude the endpoint looks like a plain no-auth URL, so it
+   connects without needing OAuth.
+2. **`Authorization: Bearer <token>` header** — for Claude Code, programmatic
    clients, and anything that lets you set request headers.
-2. **`?token=<token>` query param** (capability-URL style) — for the Claude.ai /
-   Claude Desktop connector UI, which does not expose a custom-header field.
+3. **`?token=<token>` query param** — fallback.
 
 When `ACCESS_TOKEN` is unset the endpoint is open (local dev only); the server
 logs a warning on boot.
 
-> Note on auth mechanism: Claude.ai's custom-connector UI officially documents
-> **OAuth** (Client ID / Secret), not static tokens. The `?token=` capability URL
-> is a pragmatic shared-secret alternative for a single trusted client. It works,
-> but the token travels in the URL (can appear in logs/history), so treat the URL
-> as the secret and rotate it by changing `ACCESS_TOKEN`. Full OAuth can be added
-> later if you want per-user auth.
+> Why the path form for Claude.ai: its custom-connector UI only supports **no
+> auth** or **OAuth** (Client ID / Secret) — there is no header/API-key field. A
+> plain `/mcp` with a token gate returns 401 with no OAuth metadata, which makes
+> the connector hang on "checking connection". Baking the token into the path
+> makes the URL look like a no-auth endpoint, which connects cleanly. The token
+> travels in the URL, so treat the whole URL as the secret and rotate it by
+> changing `ACCESS_TOKEN`. Full OAuth can be added later for per-user auth.
 
 ## Connecting a client
 
@@ -69,10 +73,10 @@ claude mcp add --transport http wpi-transcriber https://<domain>/mcp \
 **Claude.ai / Claude Desktop (custom connector, capability URL):**
 
 Customize → Connectors → Add custom connector, and enter the URL with the token
-embedded:
+embedded in the **path**. Leave the OAuth Client ID / Secret fields blank.
 
 ```
-https://<domain>/mcp?token=<token>
+https://<domain>/mcp/<token>
 ```
 
 Once connected, Claude can call `transcribe_audio` with a `path` or `url`.

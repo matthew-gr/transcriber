@@ -43,9 +43,10 @@ mcp/README.md       MCP run + client-connect notes
 
 - A shared secret `ACCESS_TOKEN` gates `POST /api/transcribe` (portal) and `/mcp`
   (MCP). `/health` is open for platform checks.
-- Accepted via `Authorization: Bearer <token>` **or** `?token=<token>` query (a
-  capability URL for the Claude.ai connector UI, which exposes only OAuth, no
-  header field). Unset token = open endpoint (local dev only).
+- Accepted via `/mcp/<token>` path (capability URL — the reliable form for the
+  Claude.ai connector UI, which exposes only no-auth or OAuth), `Authorization:
+  Bearer <token>` header, or `?token=<token>` query. Unset token = open endpoint
+  (local dev only).
 
 ## Deployment — Railway, two services, one repo
 
@@ -64,8 +65,8 @@ mcp/README.md       MCP run + client-connect notes
 ## Connecting Claude to the MCP server
 
 - **Claude Code**: `claude mcp add --transport http wpi-transcriber https://<host>/mcp --header "Authorization: Bearer <token>"`
-- **Claude.ai / Desktop connector**: URL `https://<host>/mcp?token=<token>`, leave
-  OAuth Client ID/Secret blank.
+- **Claude.ai / Desktop connector**: URL `https://<host>/mcp/<token>` (token in
+  the path), leave OAuth Client ID/Secret blank.
 
 ## Conventions & constraints
 
