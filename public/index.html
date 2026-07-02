@@ -75,6 +75,27 @@
     color: var(--muted);
   }
   input[type="file"] { display: none; }
+  .token-label {
+    display: block;
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 6px;
+  }
+  .token-input {
+    width: 100%;
+    padding: 11px 12px;
+    margin: 0 0 20px;
+    font: inherit;
+    font-size: 14px;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+  }
+  .token-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .filename {
     margin-top: 14px;
     font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
@@ -164,6 +185,9 @@
     <h1>Audio Transcriber</h1>
     <p class="lead">Upload a recording and get the text back. Supports mp3, m4a, wav, mp4, mpeg, mpga, and webm, up to 25 MB.</p>
 
+    <label class="token-label" for="token">Access token</label>
+    <input type="password" id="token" class="token-input" placeholder="Paste the access token" autocomplete="off" />
+
     <label class="drop" id="drop">
       <strong>Choose a file</strong> or drop it here
       <span class="hint">Audio only, 25 MB max</span>
@@ -199,9 +223,16 @@
   const copyEl = document.getElementById("copy");
   const downloadEl = document.getElementById("download");
   const longNoteEl = document.getElementById("longNote");
+  const tokenEl = document.getElementById("token");
 
   let selectedFile = null;
   let lastName = "transcript";
+
+  // Remember the token in this browser so it only has to be pasted once.
+  tokenEl.value = localStorage.getItem("wpi_token") || "";
+  tokenEl.addEventListener("input", () =>
+    localStorage.setItem("wpi_token", tokenEl.value.trim())
+  );
 
   function setStatus(msg, isError) {
     statusEl.textContent = msg;
@@ -244,9 +275,14 @@
     const form = new FormData();
     form.append("audio", selectedFile);
 
+    const headers = {};
+    const token = tokenEl.value.trim();
+    if (token) headers["Authorization"] = "Bearer " + token;
+
     try {
-      const res = await fetch("/api/transcribe", { method: "POST", body: form });
+      const res = await fetch("/api/transcribe", { method: "POST", body: form, headers });
       const data = await res.json();
+      if (res.status === 401) throw new Error("Access denied. Check the access token and try again.");
       if (!res.ok) throw new Error(data.error || "Transcription failed.");
 
       lastName = (data.filename || "transcript").replace(/\.[^.]+$/, "");

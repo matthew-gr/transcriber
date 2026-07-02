@@ -16,6 +16,35 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Shared-secret gate for the transcription API. Whisper calls cost money, so a
+// public deploy must not leave /api/transcribe open. When ACCESS_TOKEN is set,
+// callers must present it (Authorization: Bearer <token> or x-access-token).
+// When it is unset we allow through, so local dev stays friction-free.
+const ACCESS_TOKEN = process.env.ACCESS_TOKEN || "";
+if (!ACCESS_TOKEN) {
+  console.warn(
+    "WARNING: ACCESS_TOKEN is not set. /api/transcribe is OPEN. Set it before exposing this server publicly."
+  );
+}
+
+// Constant-time compare via fixed-length SHA-256 digests (timingSafeEqual needs
+// equal-length buffers), so a wrong token leaks neither validity nor length.
+function tokenMatches(provided) {
+  if (!provided) return false;
+  const a = crypto.createHash("sha256").update(provided).digest();
+  const b = crypto.createHash("sha256").update(ACCESS_TOKEN).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
+function requireToken(req, res, next) {
+  if (!ACCESS_TOKEN) return next();
+  const header = req.get("authorization") || "";
+  const bearer = header.startsWith("Bearer ") ? header.slice(7) : "";
+  const provided = bearer || req.get("x-access-token") || "";
+  if (tokenMatches(provided)) return next();
+  return res.status(401).json({ error: "Invalid or missing access token." });
+}
+
 // Store uploads in a temp dir. We delete each file right after transcribing.
 // Preserve the original extension: OpenAI infers the audio format from the
 // filename, so an extensionless temp file makes Whisper reject the upload.
@@ -32,7 +61,7 @@ const upload = multer({
 
 app.use(express.static(path.join(__dirname, "..", "public")));
 
-app.post("/api/transcribe", upload.single("audio"), async (req, res) => {
+app.post("/api/transcribe", requireToken, upload.single("audio"), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No file uploaded." });
   }
