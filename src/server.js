@@ -88,6 +88,9 @@ app.post("/api/transcribe", requireToken, upload.single("audio"), async (req, re
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
-app.listen(PORT, () => {
-  console.log(`WPI Transcriber portal running on http://localhost:${PORT}`);
+// Bind 0.0.0.0 (all interfaces) so hosted platforms like Railway can route to
+// the container. Binding the default interface makes the edge proxy report
+// "Application failed to respond" even though the process is up.
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`WPI Transcriber portal running on 0.0.0.0:${PORT}`);
 });
