@@ -9,7 +9,9 @@ import { fileURLToPath } from "url";
 import {
   transcribeFile,
   isSupported,
-  MAX_FILE_BYTES,
+  MAX_UPLOAD_BYTES,
+  PROVIDERS,
+  DEFAULT_PROVIDER,
 } from "./transcribe.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -56,10 +58,17 @@ const upload = multer({
       cb(null, `wpi-upload-${crypto.randomUUID()}${ext}`);
     },
   }),
-  limits: { fileSize: MAX_FILE_BYTES },
+  // Sized to the largest provider cap; transcribeFile enforces the specific
+  // active provider's cap (e.g. Whisper's 25 MB) per request.
+  limits: { fileSize: MAX_UPLOAD_BYTES },
 });
 
 app.use(express.static(path.join(__dirname, "..", "public")));
+
+// Lets the upload page render the provider options and default the selector.
+app.get("/api/config", (_req, res) => {
+  res.json({ providers: PROVIDERS, defaultProvider: DEFAULT_PROVIDER });
+});
 
 app.post("/api/transcribe", requireToken, upload.single("audio"), async (req, res) => {
   if (!req.file) {
@@ -67,20 +76,25 @@ app.post("/api/transcribe", requireToken, upload.single("audio"), async (req, re
   }
 
   const tempPath = req.file.path;
+  const provider = req.body.provider || DEFAULT_PROVIDER;
 
   try {
-    if (!isSupported(req.file.originalname)) {
+    if (!isSupported(req.file.originalname, provider)) {
       return res.status(400).json({
         error:
-          "Unsupported file type. Use mp3, mp4, mpeg, mpga, m4a, wav, or webm.",
+          "Unsupported file type for Whisper. Use mp3, mp4, mpeg, mpga, m4a, wav, or webm — or switch the provider to AssemblyAI for other formats.",
       });
     }
 
-    const text = await transcribeFile(tempPath);
-    res.json({ text, filename: req.file.originalname });
+    const text = await transcribeFile(tempPath, { provider });
+    res.json({ text, filename: req.file.originalname, provider });
   } catch (err) {
-    console.error("Transcription failed:", err.message);
-    res.status(500).json({ error: err.message || "Transcription failed." });
+    const msg = err.message || "Transcription failed.";
+    // Missing-key and bad-provider are configuration errors: report them plainly
+    // as 400 rather than a 500 stack-trace.
+    const configError = /is not set|Unknown provider/.test(msg);
+    if (!configError) console.error("Transcription failed:", msg);
+    res.status(configError ? 400 : 500).json({ error: msg });
   } finally {
     fs.unlink(tempPath, () => {});
   }

@@ -1,12 +1,32 @@
 import fs from "fs";
 import OpenAI from "openai";
+import { AssemblyAI } from "assemblyai";
 
-const MODEL = process.env.WHISPER_MODEL || "whisper-1";
+const MB = 1024 * 1024;
 
-// Whisper hard limit is 25 MB per file.
-export const MAX_FILE_BYTES = 25 * 1024 * 1024;
+export const PROVIDERS = ["whisper", "assemblyai"];
 
-export const SUPPORTED_EXTENSIONS = [
+// Resolved default provider: TRANSCRIPTION_PROVIDER if valid, else whisper.
+export const DEFAULT_PROVIDER = PROVIDERS.includes(process.env.TRANSCRIPTION_PROVIDER)
+  ? process.env.TRANSCRIPTION_PROVIDER
+  : "whisper";
+
+// Size caps differ by provider. Whisper is hard-limited to 25 MB per file by the
+// OpenAI API; AssemblyAI accepts uploads up to 2.2 GB. Validate against the
+// active provider rather than a single shared constant.
+export const PROVIDER_MAX_BYTES = {
+  whisper: 25 * MB,
+  assemblyai: 2200 * MB,
+};
+
+// Largest cap across providers. The web portal sizes its upload limit to this,
+// then transcribeFile enforces the active provider's specific cap.
+export const MAX_UPLOAD_BYTES = Math.max(...Object.values(PROVIDER_MAX_BYTES));
+
+// Whisper's API gatekeeps by file extension, so we validate those up front.
+// AssemblyAI transcodes a much wider range (including phone formats like 3gp),
+// so it is not extension-gated here — its API validates the container itself.
+export const WHISPER_EXTENSIONS = [
   "mp3",
   "mp4",
   "mpeg",
@@ -16,49 +36,106 @@ export const SUPPORTED_EXTENSIONS = [
   "webm",
 ];
 
-let client = null;
-function getClient() {
-  if (!client) {
+const WHISPER_MODEL = process.env.WHISPER_MODEL || "whisper-1";
+
+function resolveProvider(provider) {
+  if (!provider) return DEFAULT_PROVIDER;
+  if (!PROVIDERS.includes(provider)) {
+    throw new Error(
+      `Unknown provider "${provider}". Use one of: ${PROVIDERS.join(", ")}.`
+    );
+  }
+  return provider;
+}
+
+// ---- OpenAI Whisper ----
+let openaiClient = null;
+function getOpenAI() {
+  if (!openaiClient) {
     if (!process.env.OPENAI_API_KEY) {
       throw new Error("OPENAI_API_KEY is not set. Add it to your .env file.");
     }
-    client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   }
-  return client;
+  return openaiClient;
 }
 
-/**
- * Transcribe an audio file from a path on disk.
- * Returns the plain text transcript as a string.
- *
- * @param {string} filePath  Absolute or relative path to the audio file.
- * @returns {Promise<string>}
- */
-export async function transcribeFile(filePath) {
-  const stats = fs.statSync(filePath);
-  if (stats.size > MAX_FILE_BYTES) {
-    throw new Error(
-      `File is ${(stats.size / 1024 / 1024).toFixed(1)} MB. Whisper accepts up to 25 MB per file. Split the recording first.`
-    );
-  }
-
-  const openai = getClient();
+async function transcribeWithWhisper(filePath) {
+  const openai = getOpenAI();
   const result = await openai.audio.transcriptions.create({
     file: fs.createReadStream(filePath),
-    model: MODEL,
+    model: WHISPER_MODEL,
     response_format: "text",
   });
-
   // With response_format "text" the SDK returns a plain string.
   return typeof result === "string" ? result.trim() : String(result).trim();
 }
 
+// ---- AssemblyAI ----
+let assemblyClient = null;
+function getAssemblyAI() {
+  if (!assemblyClient) {
+    if (!process.env.ASSEMBLYAI_API_KEY) {
+      throw new Error(
+        "ASSEMBLYAI_API_KEY is not set. Add it to your .env file. Create a key at https://www.assemblyai.com/dashboard/api-keys"
+      );
+    }
+    assemblyClient = new AssemblyAI({ apiKey: process.env.ASSEMBLYAI_API_KEY });
+  }
+  return assemblyClient;
+}
+
+async function transcribeWithAssemblyAI(filePath) {
+  const client = getAssemblyAI();
+  // The SDK uploads the local file, submits, and polls to completion. Pass the
+  // recommended ordered model fallback explicitly (raw string values, no enum).
+  const transcript = await client.transcripts.transcribe({
+    audio: filePath,
+    speech_models: ["universal-3-pro", "universal-2"],
+  });
+  if (transcript.status === "error") throw new Error(transcript.error);
+  return (transcript.text || "").trim();
+}
+
+const IMPLEMENTATIONS = {
+  whisper: transcribeWithWhisper,
+  assemblyai: transcribeWithAssemblyAI,
+};
+
 /**
- * Quick check that a filename has a Whisper-supported extension.
+ * Transcribe an audio file from a path on disk. Returns the plain text
+ * transcript as a string.
+ *
+ * @param {string} filePath  Absolute or relative path to the audio file.
+ * @param {{ provider?: string }} [opts]  provider picks the backend; falls back
+ *   to TRANSCRIPTION_PROVIDER, then "whisper".
+ * @returns {Promise<string>}
+ */
+export async function transcribeFile(filePath, { provider } = {}) {
+  const active = resolveProvider(provider);
+  const cap = PROVIDER_MAX_BYTES[active];
+  const stats = fs.statSync(filePath);
+  if (stats.size > cap) {
+    throw new Error(
+      `File is ${(stats.size / MB).toFixed(1)} MB. ${active} accepts up to ${(
+        cap / MB
+      ).toFixed(0)} MB per file. Split the recording first.`
+    );
+  }
+  return IMPLEMENTATIONS[active](filePath);
+}
+
+/**
+ * Whether a filename is accepted for the given provider. Whisper gatekeeps by
+ * extension; AssemblyAI accepts a wide range, so it is not extension-gated.
+ *
  * @param {string} filename
+ * @param {string} [provider]
  * @returns {boolean}
  */
-export function isSupported(filename) {
+export function isSupported(filename, provider) {
+  const active = resolveProvider(provider);
+  if (active !== "whisper") return true;
   const ext = filename.split(".").pop()?.toLowerCase();
-  return SUPPORTED_EXTENSIONS.includes(ext);
+  return WHISPER_EXTENSIONS.includes(ext);
 }

@@ -97,6 +97,24 @@
     border-radius: 4px;
   }
   .token-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .select-input {
+    width: 100%;
+    padding: 11px 12px;
+    margin: 0 0 6px;
+    font: inherit;
+    font-size: 14px;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .select-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .provider-note {
+    margin: 0 0 20px;
+    font-size: 12px;
+    color: var(--muted);
+  }
   .filename {
     margin-top: 14px;
     font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
@@ -189,6 +207,10 @@
     <label class="token-label" for="token">Access token</label>
     <input type="password" id="token" class="token-input" placeholder="Paste the access token" autocomplete="off" />
 
+    <label class="token-label" for="provider">Transcription engine</label>
+    <select id="provider" class="select-input"></select>
+    <p class="provider-note" id="providerNote"></p>
+
     <label class="drop" id="drop">
       <strong>Choose a file</strong> or drop it here
       <span class="hint">Audio only, 25 MB max</span>
@@ -225,9 +247,47 @@
   const downloadEl = document.getElementById("download");
   const longNoteEl = document.getElementById("longNote");
   const tokenEl = document.getElementById("token");
+  const providerEl = document.getElementById("provider");
+  const providerNoteEl = document.getElementById("providerNote");
 
   let selectedFile = null;
   let lastName = "transcript";
+
+  const PROVIDER_LABELS = { whisper: "OpenAI Whisper", assemblyai: "AssemblyAI" };
+  const PROVIDER_NOTES = {
+    whisper: "mp3, mp4, mpeg, mpga, m4a, wav, webm — up to 25 MB.",
+    assemblyai: "Wider format support (incl. 3gp) and much larger files.",
+  };
+
+  function updateProviderNote() {
+    providerNoteEl.textContent = PROVIDER_NOTES[providerEl.value] || "";
+  }
+
+  // Load provider options and default from the server.
+  (async () => {
+    try {
+      const res = await fetch("/api/config");
+      const cfg = await res.json();
+      providerEl.innerHTML = "";
+      (cfg.providers || ["whisper"]).forEach((p) => {
+        const opt = document.createElement("option");
+        opt.value = p;
+        opt.textContent = PROVIDER_LABELS[p] || p;
+        providerEl.appendChild(opt);
+      });
+      providerEl.value =
+        localStorage.getItem("wpi_provider") || cfg.defaultProvider || "whisper";
+      updateProviderNote();
+    } catch {
+      // If config can't load, leave the (empty) selector; upload still defaults
+      // server-side to its configured provider.
+    }
+  })();
+
+  providerEl.addEventListener("change", () => {
+    localStorage.setItem("wpi_provider", providerEl.value);
+    updateProviderNote();
+  });
 
   // Remember the token in this browser so it only has to be pasted once.
   tokenEl.value = localStorage.getItem("wpi_token") || "";
@@ -275,6 +335,7 @@
 
     const form = new FormData();
     form.append("audio", selectedFile);
+    if (providerEl.value) form.append("provider", providerEl.value);
 
     const headers = {};
     const token = tokenEl.value.trim();

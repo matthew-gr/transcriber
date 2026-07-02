@@ -14,7 +14,11 @@ import {
   ListToolsRequestSchema,
   isInitializeRequest,
 } from "@modelcontextprotocol/sdk/types.js";
-import { transcribeFile } from "../src/transcribe.js";
+import {
+  transcribeFile,
+  PROVIDERS,
+  DEFAULT_PROVIDER,
+} from "../src/transcribe.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -100,7 +104,7 @@ function buildServer() {
       {
         name: "transcribe_audio",
         description:
-          "Transcribe an audio file to plain text using OpenAI Whisper. Accepts either a local file path or an https URL. Supports mp3, mp4, mpeg, mpga, m4a, wav, and webm up to 25 MB.",
+          `Transcribe an audio file to plain text. Accepts either a local file path or an https URL. Two engines: "whisper" (OpenAI, mp3/mp4/mpeg/mpga/m4a/wav/webm up to 25 MB) or "assemblyai" (wider formats and much larger files). Defaults to the server's configured provider (${DEFAULT_PROVIDER}).`,
         inputSchema: {
           type: "object",
           properties: {
@@ -113,6 +117,13 @@ function buildServer() {
               description:
                 "https URL to an audio file to download and transcribe.",
             },
+            provider: {
+              type: "string",
+              enum: PROVIDERS,
+              description: `Transcription engine: ${PROVIDERS.join(
+                " or "
+              )}. Optional; defaults to ${DEFAULT_PROVIDER}.`,
+            },
           },
         },
       },
@@ -124,7 +135,7 @@ function buildServer() {
       throw new Error(`Unknown tool: ${request.params.name}`);
     }
 
-    const { path: localPath, url } = request.params.arguments || {};
+    const { path: localPath, url, provider } = request.params.arguments || {};
     if (!localPath && !url) {
       return {
         isError: true,
@@ -140,7 +151,7 @@ function buildServer() {
         workingPath = await downloadToTemp(url);
         isTemp = true;
       }
-      const text = await transcribeFile(workingPath);
+      const text = await transcribeFile(workingPath, { provider });
       return { content: [{ type: "text", text }] };
     } catch (err) {
       return {
