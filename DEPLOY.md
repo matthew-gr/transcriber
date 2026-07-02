@@ -66,29 +66,37 @@ platform health checks.
 # Deploying the MCP server (second Railway service)
 
 The MCP server (`mcp/server.js`) runs the same shared core as the portal, so it
-imports `../src/transcribe.js`. That means it must build from the **repo root**,
-not from an isolated `mcp/` root directory — otherwise `../src` and the root
-`node_modules` (which hold the transcription core and its `openai` dependency)
-would not be present.
+imports `../src/transcribe.js`. It therefore builds from the **repo root**, not
+from an isolated `mcp/` root directory — otherwise `../src` is not copied into
+the build container (you'll see `ERR_MODULE_NOT_FOUND: /src/transcribe.js`). All
+of its runtime dependencies (the MCP SDK, `openai`, `assemblyai`) are declared in
+the **root** `package.json`, so a normal root `npm ci` installs everything it
+needs — no custom install command required.
+
+Because both services build from the same repo, the MCP service uses its **own**
+config file, `railway.mcp.json`, so it never picks up the web portal's
+`railway.json` (which would otherwise start the wrong process).
+
+> ⚠️ If Railway offers an auto-fix that "updates railway.json," do **not** accept
+> it — that file belongs to the web portal, and editing it would make the portal
+> try to run the MCP server. Use the steps below instead.
 
 In the **same Railway project** as the portal:
 
 1. **New → GitHub Repo**, pick `transcriber` again (same repo, a second service).
-2. Leave **Root Directory** at the repo root (do **not** set it to `mcp`).
-3. Set a **custom Install Command** so both dependency sets are installed:
-   ```
-   npm install && npm install --prefix mcp
-   ```
-4. Set a **custom Start Command**:
-   ```
-   node mcp/server.js
-   ```
-5. **Variables**: `OPENAI_API_KEY` and `ACCESS_TOKEN` (same values as the portal,
-   or a separate token if you want to revoke them independently). No manual `PORT`.
-6. **Settings → Networking → Generate Domain** to get the public HTTPS URL. The
-   MCP endpoint is `https://<mcp-domain>/mcp`.
-7. Verify `https://<mcp-domain>/health` returns `{"ok":true}`, then connect a
+2. **Settings → Source**: make sure **Root Directory** is the repo root (empty /
+   `/`), **not** `mcp`. If it's currently set to `mcp`, clear it.
+3. **Settings → Config-as-code**: set the config file path to `railway.mcp.json`.
+   That file sets the start command (`node mcp/server.js`) and the `/health`
+   check. No custom install or start command is needed in the dashboard.
+4. **Variables**: `OPENAI_API_KEY`, `ACCESS_TOKEN`, and `ASSEMBLYAI_API_KEY`
+   (plus optional `TRANSCRIPTION_PROVIDER`). Use the same token as the portal, or
+   a separate one to revoke independently. No manual `PORT`.
+5. **Settings → Networking → Generate Domain** for the public HTTPS URL. The MCP
+   endpoint is `https://<mcp-domain>/mcp`.
+6. Verify `https://<mcp-domain>/health` returns `{"ok":true}`, then connect a
    client per `mcp/README.md`.
 
-Result: two services, one repo — the portal on its domain, the MCP server on its
-own, each with its own injected `PORT`.
+Result: two services, one repo — the portal (`railway.json`, `npm start`) on its
+domain, the MCP server (`railway.mcp.json`, `node mcp/server.js`) on its own,
+each with its own injected `PORT`.
