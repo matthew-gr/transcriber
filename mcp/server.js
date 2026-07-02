@@ -6,9 +6,9 @@ import crypto from "crypto";
 import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
+import express from "express";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -108,13 +108,23 @@ function buildServer() {
       {
         name: "transcribe_audio",
         description:
-          `Transcribe an audio file to plain text. Accepts either a local file path or an https URL. Two engines: "whisper" prefers OpenAI Whisper (mp3/mp4/mpeg/mpga/m4a/wav/webm up to 25 MB) but automatically falls back to AssemblyAI for files it can't handle (over 25 MB or other formats like 3gp); "assemblyai" always uses AssemblyAI. Defaults to the server's configured provider (${DEFAULT_PROVIDER}).`,
+          `Transcribe an audio file to plain text. Provide the audio one of three ways: audioBase64 (base64 file bytes — use this for a file you have locally, e.g. an upload, that this remote server can't reach by path/url), a local file path on the server, or an https url. Two engines: "whisper" prefers OpenAI Whisper (mp3/mp4/mpeg/mpga/m4a/wav/webm up to 25 MB) but automatically falls back to AssemblyAI for files it can't handle (over 25 MB or other formats like 3gp); "assemblyai" always uses AssemblyAI. Defaults to the server's configured provider (${DEFAULT_PROVIDER}).`,
         inputSchema: {
           type: "object",
           properties: {
+            audioBase64: {
+              type: "string",
+              description:
+                "Base64-encoded audio file bytes. Use this to transcribe a locally-uploaded file the server cannot reach otherwise. Best for files under ~30 MB; for larger files use url.",
+            },
+            filename: {
+              type: "string",
+              description:
+                "Original filename (e.g. memo.3gp), used with audioBase64 to detect the format. Recommended.",
+            },
             path: {
               type: "string",
-              description: "Absolute path to a local audio file.",
+              description: "Absolute path to an audio file on the server.",
             },
             url: {
               type: "string",
@@ -139,11 +149,14 @@ function buildServer() {
       throw new Error(`Unknown tool: ${request.params.name}`);
     }
 
-    const { path: localPath, url, provider } = request.params.arguments || {};
-    if (!localPath && !url) {
+    const { path: localPath, url, provider, audioBase64, filename } =
+      request.params.arguments || {};
+    if (!localPath && !url && !audioBase64) {
       return {
         isError: true,
-        content: [{ type: "text", text: "Provide either a path or a url." }],
+        content: [
+          { type: "text", text: "Provide audioBase64, a path, or a url." },
+        ],
       };
     }
 
@@ -152,7 +165,22 @@ function buildServer() {
 
     try {
       if (!workingPath) {
-        workingPath = await downloadToTemp(url);
+        if (audioBase64) {
+          // Write the uploaded bytes to a temp file, keeping the original
+          // extension so format detection and the Whisper->AssemblyAI auto-flip
+          // still work.
+          const ext = filename ? path.extname(filename) : "";
+          workingPath = path.join(
+            os.tmpdir(),
+            `mcp-audio-${randomUUID()}${ext || ".audio"}`
+          );
+          await fs.promises.writeFile(
+            workingPath,
+            Buffer.from(audioBase64, "base64")
+          );
+        } else {
+          workingPath = await downloadToTemp(url);
+        }
         isTemp = true;
       }
       const text = await transcribeFile(workingPath, { provider });
@@ -170,7 +198,13 @@ function buildServer() {
   return server;
 }
 
-const app = createMcpExpressApp({ host: HOST });
+// Build the Express app directly (rather than the SDK helper) so we can raise
+// the JSON body limit: the transcribe tool can receive base64 audio inline, for
+// files an MCP client (e.g. Claude.ai) has locally but the server can't reach by
+// path or url. Token auth protects the endpoint in place of the helper's
+// localhost DNS-rebinding guard.
+const app = express();
+app.use(express.json({ limit: "50mb" }));
 
 // Open health check for platform probes (Railway hits this).
 app.get("/health", (_req, res) => res.json({ ok: true }));

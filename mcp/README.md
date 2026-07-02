@@ -26,13 +26,17 @@ Boot line: `WPI Transcriber MCP server (Streamable HTTP) listening on 0.0.0.0:30
 
 ## The tool
 
-`transcribe_audio` takes one of:
+`transcribe_audio` takes the audio one of three ways:
 
-- `path` — an absolute path to a local audio file, or
+- `audioBase64` (+ optional `filename`) — base64 file bytes. Use this for a file
+  the client has locally (e.g. an upload in Claude.ai) that this remote server
+  can't reach by path or url. Best for files under ~30 MB; use `url` for larger.
+- `path` — an absolute path to an audio file **on the server**.
 - `url` — an https URL to an audio file (downloaded, transcribed, then deleted).
 
-Returns the transcript as text. Supports mp3, mp4, mpeg, mpga, m4a, wav, and
-webm up to 25 MB (Whisper's per-file limit).
+Optional `provider` (`whisper` | `assemblyai`) picks the engine; otherwise the
+server default is used. `whisper` auto-falls back to AssemblyAI for files it
+can't handle (over 25 MB or formats like 3gp). Returns the transcript as text.
 
 ## Authentication
 

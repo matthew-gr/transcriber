@@ -8,6 +8,8 @@ points share one transcription core.
 - **Web portal** (`src/server.js` + `public/index.html`) — browser upload → text.
 - **MCP server** (`mcp/server.js`) — exposes a `transcribe_audio` tool over MCP
   Streamable HTTP so Claude (Desktop / Claude.ai / Claude Code) can transcribe.
+  The tool accepts `audioBase64` (+`filename`) for locally-uploaded files the
+  remote server can't reach, plus `path` (server-side) and `url` (https).
 - Both route through the single shared core `src/transcribe.js`. Keep it that way
   — no duplicated provider logic in two places.
 
