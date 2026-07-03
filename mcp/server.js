@@ -8,6 +8,7 @@ import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import express from "express";
+import multer from "multer";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
@@ -17,6 +18,8 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import {
   transcribeFile,
+  resolveEffectiveProvider,
+  MAX_UPLOAD_BYTES,
   PROVIDERS,
   DEFAULT_PROVIDER,
 } from "../src/transcribe.js";
@@ -244,6 +247,48 @@ app.use(express.json({ limit: "50mb" }));
 
 // Open health check for platform probes (Railway hits this).
 app.get("/health", (_req, res) => res.json({ ok: true }));
+
+// Direct multipart upload endpoint. Lets a client that can reach this host over
+// HTTP (e.g. a code sandbox with the host allowlisted) POST the file bytes and
+// get the transcript back with no base64/token cost. Routes through the same
+// shared core as the MCP tool.
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: os.tmpdir(),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, `mcp-upload-${randomUUID()}${ext}`);
+    },
+  }),
+  limits: { fileSize: MAX_UPLOAD_BYTES },
+});
+
+app.post(
+  "/api/transcribe",
+  requireToken,
+  upload.single("audio"),
+  async (req, res) => {
+    if (!req.file) {
+      return res
+        .status(400)
+        .json({ error: "No file uploaded (form field must be 'audio')." });
+    }
+    const tempPath = req.file.path;
+    const requested = req.body.provider || DEFAULT_PROVIDER;
+    try {
+      const provider = resolveEffectiveProvider(tempPath, requested);
+      const text = await transcribeFile(tempPath, { provider });
+      res.json({ text, filename: req.file.originalname, provider, requested });
+    } catch (err) {
+      const msg = err.message || "Transcription failed.";
+      const configError = /is not set|Unknown provider/.test(msg);
+      if (!configError) console.error("Upload transcription failed:", msg);
+      res.status(configError ? 400 : 500).json({ error: msg });
+    } finally {
+      fs.unlink(tempPath, () => {});
+    }
+  }
+);
 
 // Stateful Streamable HTTP session management, per the MCP SDK reference:
 // the initialize request creates a session and returns an Mcp-Session-Id header

@@ -41,6 +41,25 @@ Optional `provider` (`whisper` | `assemblyai`) picks the engine; otherwise the
 server default is used. `whisper` auto-falls back to AssemblyAI for files it
 can't handle (over 25 MB or formats like 3gp). Returns the transcript as text.
 
+## Direct file upload (POST /api/transcribe)
+
+Besides the MCP tool, the server exposes a plain multipart upload endpoint. This
+is for a client that can reach the host over HTTP but can't pass file bytes
+through MCP without a huge token cost — e.g. a code sandbox with this host on its
+network allowlist. The bytes stream over the wire, not through any model
+context.
+
+```bash
+curl -sS -X POST https://<host>/api/transcribe \
+  -H "Authorization: Bearer <token>" \
+  -F "audio=@recording.3gp" \
+  -F "provider=whisper"   # optional
+```
+
+Returns `{ "text": "...", "filename": "...", "provider": "...", "requested": "..." }`.
+Same auth and shared core as everything else; `whisper` auto-flips to AssemblyAI
+for files it can't handle.
+
 ## Authentication
 
 The endpoint spends OpenAI credits per call, so it is gated by the same

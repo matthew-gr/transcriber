@@ -9,7 +9,10 @@ points share one transcription core.
 - **MCP server** (`mcp/server.js`) — exposes a `transcribe_audio` tool over MCP
   Streamable HTTP so Claude (Desktop / Claude.ai / Claude Code) can transcribe.
   The tool accepts `audioBase64` (+`filename`) for locally-uploaded files the
-  remote server can't reach, plus `path` (server-side) and `url` (https).
+  remote server can't reach, plus `path` (server-side) and `url` (https, follows
+  redirects). The MCP server also exposes `POST /api/transcribe` (multipart) for
+  direct HTTP upload from a client that can reach the host (e.g. an allowlisted
+  code sandbox) — no token/base64 cost.
 - Both route through the single shared core `src/transcribe.js`. Keep it that way
   — no duplicated provider logic in two places.
 
