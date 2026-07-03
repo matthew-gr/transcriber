@@ -1,6 +1,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
+import http from "http";
 import https from "https";
 import crypto from "crypto";
 import { randomUUID } from "crypto";
@@ -71,26 +72,61 @@ function requireToken(req, res, next) {
   });
 }
 
-// Download a remote https URL to a temp file so the shared core can read a
-// local stream, then the caller deletes it after transcription.
-function downloadToTemp(url) {
-  return new Promise((resolve, reject) => {
-    const ext = path.extname(new URL(url).pathname) || ".audio";
-    const dest = path.join(os.tmpdir(), `mcp-audio-${randomUUID()}${ext}`);
-    const fileStream = fs.createWriteStream(dest);
-    https
-      .get(url, (resp) => {
-        if (resp.statusCode && resp.statusCode >= 400) {
-          reject(new Error(`Download failed with status ${resp.statusCode}.`));
+// Follow redirects (up to a limit), picking http/https by the target protocol.
+// Many hosts — Google Drive, Dropbox, S3 signed links — 3xx before serving the
+// file, so a downloader that doesn't follow redirects fails on real-world URLs.
+function getFollowingRedirects(url, redirectsLeft, onResponse, onError) {
+  let mod;
+  try {
+    mod = new URL(url).protocol === "http:" ? http : https;
+  } catch (err) {
+    onError(err);
+    return;
+  }
+  mod
+    .get(url, (resp) => {
+      const status = resp.statusCode || 0;
+      if (status >= 300 && status < 400 && resp.headers.location) {
+        resp.resume(); // drain the redirect body
+        if (redirectsLeft <= 0) {
+          onError(new Error("Too many redirects."));
           return;
         }
+        const next = new URL(resp.headers.location, url).toString();
+        getFollowingRedirects(next, redirectsLeft - 1, onResponse, onError);
+        return;
+      }
+      onResponse(resp, status);
+    })
+    .on("error", onError);
+}
+
+// Download a remote URL to a temp file so the shared core can read a local
+// stream, then the caller deletes it after transcription.
+function downloadToTemp(url) {
+  const ext = path.extname(new URL(url).pathname) || ".audio";
+  const dest = path.join(os.tmpdir(), `mcp-audio-${randomUUID()}${ext}`);
+  return new Promise((resolve, reject) => {
+    const fail = (err) => {
+      fs.unlink(dest, () => {});
+      reject(err);
+    };
+    getFollowingRedirects(
+      url,
+      5,
+      (resp, status) => {
+        if (status >= 400) {
+          resp.resume();
+          fail(new Error(`Download failed with status ${status}.`));
+          return;
+        }
+        const fileStream = fs.createWriteStream(dest);
+        fileStream.on("error", fail);
         resp.pipe(fileStream);
         fileStream.on("finish", () => fileStream.close(() => resolve(dest)));
-      })
-      .on("error", (err) => {
-        fs.unlink(dest, () => {});
-        reject(err);
-      });
+      },
+      fail
+    );
   });
 }
 

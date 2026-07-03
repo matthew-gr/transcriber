@@ -33,6 +33,9 @@ Boot line: `WPI Transcriber MCP server (Streamable HTTP) listening on 0.0.0.0:30
   can't reach by path or url. Best for files under ~30 MB; use `url` for larger.
 - `path` — an absolute path to an audio file **on the server**.
 - `url` — an https URL to an audio file (downloaded, transcribed, then deleted).
+  Redirects are followed, so share links from Google Drive / Dropbox / S3 work
+  as long as the file is publicly reachable. This is the best route for larger
+  files, since it costs no tokens (unlike `audioBase64`).
 
 Optional `provider` (`whisper` | `assemblyai`) picks the engine; otherwise the
 server default is used. `whisper` auto-falls back to AssemblyAI for files it
